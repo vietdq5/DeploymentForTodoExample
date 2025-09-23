@@ -1,0 +1,17 @@
+docker build -t todo-service:v1.1 .
+docker build -t gateway-service:v1.2 .
+
+kubectl create namespace todo
+
+helm install gateway-dev ./gateway-service -n todo
+helm install todo-dev ./todo-service -n todo
+helm upgrade gateway-dev ./gateway-service -n todo
+helm upgrade todo-dev ./todo-service -n todo
+
+/// get pod
+kubectl get pods -n todo
+kubectl get svc -n todo
+kubectl port-forward svc/todo-service-todo-dev 8080:80 -n todo
+kubectl port-forward service/todo-service-todo-dev 8080:80 -n todo
+
+kubectl exec -n todo -it todo-service-todo-dev-6f4c464d85-bvvgh -- curl http://localhost:80

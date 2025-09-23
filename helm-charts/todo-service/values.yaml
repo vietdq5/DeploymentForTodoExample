@@ -1,0 +1,31 @@
+replicaCount: 1
+
+image:
+  repository: todo-service
+  tag: v1.2
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 60
+
+postgres:
+  host: 192.168.1.164
+  port: 5432
+  database: tododb
+  username: postgre
+  password: postgre
