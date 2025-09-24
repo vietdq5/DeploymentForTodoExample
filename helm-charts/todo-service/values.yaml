@@ -1,4 +1,4 @@
-replicaCount: 1
+replicaCount: 2  # Tăng lên 2 để đảm bảo HA
 
 image:
   repository: todo-service
@@ -9,23 +9,50 @@ service:
   type: ClusterIP
   port: 80
 
+# CẬP NHẬT RESOURCES - Tối ưu cho .NET Core 8
 resources:
   limits:
-    cpu: 500m
-    memory: 512Mi
+    cpu: 1000m
+    memory: 1Gi
+    ephemeral-storage: 2Gi
   requests:
     cpu: 250m
-    memory: 256Mi
+    memory: 512Mi  # .NET Core cần ít nhất 512Mi để chạy ổn định
+    ephemeral-storage: 500Mi
+
+# THÊM HEALTH CHECK CONFIG
+healthCheck:
+  liveness:
+    path: /health
+    initialDelaySeconds: 45  # Todo service cần thời gian kết nối DB
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    path: /health/ready
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  startup:
+    path: /health
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
 
 autoscaling:
   enabled: true
-  minReplicas: 1
-  maxReplicas: 3
-  targetCPUUtilizationPercentage: 60
+  minReplicas: 2  # Tăng min replicas
+  maxReplicas: 5  # Giảm max replicas cho phù hợp
+  targetCPUUtilizationPercentage: 70  # Tăng threshold
+  targetMemoryUtilizationPercentage: 80  # Thêm memory metric
 
 postgres:
   host: 192.168.1.164
   port: 5432
   database: tododb
   username: postgre
-  password: postgre
+  password: will-be-replaced-by-secret  # Sẽ thay thế ở bước 3
+
+environment: Production

@@ -2,6 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "todo-service.fullname" . }}
+  labels:
+    app: {{ include "todo-service.name" . }}
+    version: {{ .Values.image.tag }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
@@ -11,6 +14,7 @@ spec:
     metadata:
       labels:
         app: {{ include "todo-service.name" . }}
+        version: {{ .Values.image.tag }}
     spec:
       containers:
       - name: todo-service
@@ -18,9 +22,13 @@ spec:
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         ports:
         - containerPort: 80
+          name: http
+          protocol: TCP
         env:
         - name: ASPNETCORE_URLS
           value: "http://0.0.0.0:80"
+        - name: ASPNETCORE_ENVIRONMENT
+          value: {{ .Values.environment | default "Production" }}
         - name: POSTGRES_HOST
           valueFrom:
             configMapKeyRef:
@@ -46,5 +54,36 @@ spec:
             secretKeyRef:
               name: {{ include "todo-service.fullname" . }}-secret
               key: POSTGRES_PASSWORD
+        # THÊM HEALTH CHECKS
+        # livenessProbe: kiểm tra pod có “sống” không → nếu fail thì K8s restart container.
+        # readinessProbe: kiểm tra pod đã “sẵn sàng nhận traffic” chưa → nếu fail thì Service sẽ không route traffic tới pod đó.
+        # startupProbe: dùng cho ứng dụng khởi động chậm → giúp tránh restart nhầm trước khi service khởi động xong.
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.healthCheck.liveness.path | default "/health" }}
+            port: http
+          initialDelaySeconds: {{ .Values.healthCheck.liveness.initialDelaySeconds | default 45 }}
+          periodSeconds: {{ .Values.healthCheck.liveness.periodSeconds | default 10 }}
+          timeoutSeconds: {{ .Values.healthCheck.liveness.timeoutSeconds | default 5 }}
+          failureThreshold: {{ .Values.healthCheck.liveness.failureThreshold | default 3 }}
+          successThreshold: 1
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.healthCheck.readiness.path | default "/health/ready" }}
+            port: http
+          initialDelaySeconds: {{ .Values.healthCheck.readiness.initialDelaySeconds | default 10 }}
+          periodSeconds: {{ .Values.healthCheck.readiness.periodSeconds | default 5 }}
+          timeoutSeconds: {{ .Values.healthCheck.readiness.timeoutSeconds | default 3 }}
+          failureThreshold: {{ .Values.healthCheck.readiness.failureThreshold | default 3 }}
+          successThreshold: 1
+        startupProbe:
+          httpGet:
+            path: {{ .Values.healthCheck.startup.path | default "/health" }}
+            port: http
+          initialDelaySeconds: {{ .Values.healthCheck.startup.initialDelaySeconds | default 0 }}
+          periodSeconds: {{ .Values.healthCheck.startup.periodSeconds | default 10 }}
+          timeoutSeconds: {{ .Values.healthCheck.startup.timeoutSeconds | default 5 }}
+          failureThreshold: {{ .Values.healthCheck.startup.failureThreshold | default 30 }}
+          successThreshold: 1
         resources:
 {{ toYaml .Values.resources | indent 10 }}

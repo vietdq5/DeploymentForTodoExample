@@ -1,3 +1,5 @@
+replicaCount: 2  # Tăng lên 2 replicas cho HA
+
 image:
   repository: gateway-service
   tag: v1.3
@@ -8,10 +10,36 @@ service:
   port: 80
   nodePort: 30081
 
+# THÊM HEALTH CHECK CONFIG
+healthCheck:
+  liveness:
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    path: /health/ready
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  startup:
+    path: /health
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
+
+# CẬP NHẬT RESOURCES
 resources:
   limits:
     cpu: 500m
     memory: 512Mi
+    ephemeral-storage: 2Gi
   requests:
     cpu: 250m
     memory: 256Mi
+    ephemeral-storage: 500Mi
+
+environment: Production

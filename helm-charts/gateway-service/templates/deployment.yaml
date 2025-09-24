@@ -2,8 +2,11 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "gateway-service.fullname" . }}
+  labels:
+    app: {{ include "gateway-service.name" . }}
+    version: {{ .Values.image.tag }}
 spec:
-  replicas: 1
+  replicas: {{ .Values.replicaCount | default 1 }}
   selector:
     matchLabels:
       app: {{ include "gateway-service.name" . }}
@@ -11,6 +14,7 @@ spec:
     metadata:
       labels:
         app: {{ include "gateway-service.name" . }}
+        version: {{ .Values.image.tag }}
     spec:
       containers:
         - name: gateway-service
@@ -18,8 +22,40 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 8080
+              name: http
+              protocol: TCP
           env:
             - name: ASPNETCORE_URLS
               value: "http://0.0.0.0:8080"
+            - name: ASPNETCORE_ENVIRONMENT
+              value: {{ .Values.environment | default "Production" }}
+          # THÊM HEALTH CHECKS
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.healthCheck.liveness.path | default "/health" }}
+              port: http
+            initialDelaySeconds: {{ .Values.healthCheck.liveness.initialDelaySeconds | default 30 }}
+            periodSeconds: {{ .Values.healthCheck.liveness.periodSeconds | default 10 }}
+            timeoutSeconds: {{ .Values.healthCheck.liveness.timeoutSeconds | default 5 }}
+            failureThreshold: {{ .Values.healthCheck.liveness.failureThreshold | default 3 }}
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.healthCheck.readiness.path | default "/health/ready" }}
+              port: http
+            initialDelaySeconds: {{ .Values.healthCheck.readiness.initialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.healthCheck.readiness.periodSeconds | default 5 }}
+            timeoutSeconds: {{ .Values.healthCheck.readiness.timeoutSeconds | default 3 }}
+            failureThreshold: {{ .Values.healthCheck.readiness.failureThreshold | default 3 }}
+            successThreshold: 1
+          startupProbe:
+            httpGet:
+              path: {{ .Values.healthCheck.startup.path | default "/health" }}
+              port: http
+            initialDelaySeconds: {{ .Values.healthCheck.startup.initialDelaySeconds | default 0 }}
+            periodSeconds: {{ .Values.healthCheck.startup.periodSeconds | default 10 }}
+            timeoutSeconds: {{ .Values.healthCheck.startup.timeoutSeconds | default 5 }}
+            failureThreshold: {{ .Values.healthCheck.startup.failureThreshold | default 30 }}
+            successThreshold: 1
           resources:
 {{ toYaml .Values.resources | indent 12 }}
