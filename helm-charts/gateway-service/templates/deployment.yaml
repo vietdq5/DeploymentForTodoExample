@@ -2,24 +2,76 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "gateway-service.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "gateway-service.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/version: {{ .Chart.AppVersion }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
 spec:
-  replicas: 1
+  replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      app: {{ include "gateway-service.name" . }}
+      app.kubernetes.io/name: {{ include "gateway-service.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
       labels:
-        app: {{ include "gateway-service.name" . }}
+        app.kubernetes.io/name: {{ include "gateway-service.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
+      {{- if .Values.securityContext }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      {{- end }}
       containers:
         - name: gateway-service
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
-            - containerPort: 8080
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
           env:
             - name: ASPNETCORE_URLS
               value: "http://0.0.0.0:8080"
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
+            - name: TODO_SERVICE_URL
+              value: "http://{{ .Values.serviceDiscovery.todoService.name }}.{{ .Values.serviceDiscovery.todoService.namespace }}.svc.cluster.local:{{ .Values.serviceDiscovery.todoService.port }}"
+          {{- if .Values.healthChecks.enabled }}
+          livenessProbe:
+            {{- toYaml .Values.healthChecks.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.healthChecks.readinessProbe | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /app/appsettings.json
+              subPath: appsettings.json
+              readOnly: true
           resources:
-{{ toYaml .Values.resources | indent 12 }}
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "gateway-service.fullname" . }}-config
+            items:
+              - key: appsettings.json
+                path: appsettings.json
+      restartPolicy: Always

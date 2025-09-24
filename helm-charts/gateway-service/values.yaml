@@ -1,3 +1,6 @@
+# Gateway Service - Improved values.yaml
+replicaCount: 1
+
 image:
   repository: gateway-service
   tag: v1.3
@@ -6,8 +9,69 @@ image:
 service:
   type: NodePort
   port: 80
+  targetPort: 8080
   nodePort: 30081
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+    prometheus.io/scheme: "http"
+    prometheus.io/interval: "30s"
 
+# YARP Configuration
+yarp:
+  routes:
+    todo-route:
+      clusterId: "todo-cluster"
+      match:
+        path: "/api/todos/{**catch-all}"
+      transforms:
+        - pathPattern: "/api/todos/{**catch-all}"
+    health-route:
+      clusterId: "todo-cluster"  
+      match:
+        path: "/api/health/{**catch-all}"
+      transforms:
+        - pathPattern: "/health/{**catch-all}"
+  
+  clusters:
+    todo-cluster:
+      destinations:
+        todo-destination:
+          address: "http://todo-service:80"
+      healthCheck:
+        active:
+          enabled: true
+          interval: "00:00:30"
+          timeout: "00:00:05"
+          policy: "ConsecutiveFailures"
+          path: "/health"
+        passive:
+          enabled: true
+          policy: "TransportFailureRate"
+
+# Health checks configuration
+healthChecks:
+  enabled: true
+  livenessProbe:
+    httpGet:
+      path: /health/live
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /health/ready
+      port: 8080
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Resource configuration
 resources:
   limits:
     cpu: 500m
@@ -15,3 +79,35 @@ resources:
   requests:
     cpu: 250m
     memory: 256Mi
+
+# Auto-scaling configuration
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Service discovery
+serviceDiscovery:
+  todoService:
+    name: "todo-service"
+    namespace: "default"
+    port: 80
+
+# Monitoring
+monitoring:
+  enabled: true
+  prometheusRule:
+    enabled: true
+  serviceMonitor:
+    enabled: true
+
+# Security
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 2000
+  capabilities:
+    drop:
+      - ALL

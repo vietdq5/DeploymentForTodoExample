@@ -2,25 +2,64 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "todo-service.fullname" . }}
+  labels:
+    {{- include "todo-service.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
-      app: {{ include "todo-service.name" . }}
+      {{- include "todo-service.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- if .Values.monitoring.enabled }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "80"
+        prometheus.io/path: "/metrics"
+        {{- end }}
       labels:
-        app: {{ include "todo-service.name" . }}
+        {{- include "todo-service.selectorLabels" . | nindent 8 }}
     spec:
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "todo-service.serviceAccountName" . }}
+      {{- end }}
+      {{- if .Values.securityContext }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      {{- end }}
       containers:
       - name: todo-service
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         ports:
-        - containerPort: 80
+        - name: http
+          containerPort: 80
+          protocol: TCP
         env:
+        - name: ASPNETCORE_ENVIRONMENT
+          value: {{ .Values.app.environment | quote }}
         - name: ASPNETCORE_URLS
           value: "http://0.0.0.0:80"
+        - name: Logging__LogLevel__Default
+          value: {{ .Values.app.logLevel | quote }}
+        {{- if .Values.app.enableSwagger }}
+        - name: ENABLE_SWAGGER
+          value: "true"
+        {{- end }}
+        
+        # Database configuration - prefer connection string
+        {{- if or .Values.secrets.postgresConnectionString .Values.database.connectionString }}
+        - name: ConnectionStrings__DefaultConnection
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "todo-service.fullname" . }}-secret
+              key: POSTGRES_CONNECTION_STRING
+        {{- else }}
+        # Fallback to individual connection parameters
         - name: POSTGRES_HOST
           valueFrom:
             configMapKeyRef:
@@ -46,5 +85,40 @@ spec:
             secretKeyRef:
               name: {{ include "todo-service.fullname" . }}-secret
               key: POSTGRES_PASSWORD
+        {{- end }}
+        
+        {{- if .Values.healthChecks.enabled }}
+        livenessProbe:
+          {{- toYaml .Values.healthChecks.livenessProbe | nindent 10 }}
+        readinessProbe:
+          {{- toYaml .Values.healthChecks.readinessProbe | nindent 10 }}
+        {{- end }}
+        
         resources:
-{{ toYaml .Values.resources | indent 10 }}
+          {{- toYaml .Values.resources | nindent 10 }}
+        
+        {{- if .Values.podSecurityContext }}
+        securityContext:
+          {{- toYaml .Values.podSecurityContext | nindent 10 }}
+        {{- end }}
+        
+        # Volume mounts for writable directories (since we use readOnlyRootFilesystem)
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: aspnet-tmp
+          mountPath: /app/tmp
+      
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: aspnet-tmp
+        emptyDir: {}
+      
+      # Pod-level security context
+      {{- if .Values.securityContext }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      {{- end }}
+      
+      restartPolicy: Always

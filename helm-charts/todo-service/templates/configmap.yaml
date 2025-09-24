@@ -2,7 +2,71 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ include "todo-service.fullname" . }}-config
+  labels:
+    {{- include "todo-service.labels" . | nindent 4 }}
 data:
-  POSTGRES_HOST: {{ .Values.postgres.host | quote }}
-  POSTGRES_PORT: {{ .Values.postgres.port | quote }}
-  POSTGRES_DB: {{ .Values.postgres.database | quote }}
+  # Database configuration (non-sensitive data only)
+  {{- if not (or .Values.secrets.postgresConnectionString .Values.database.connectionString) }}
+  POSTGRES_HOST: {{ .Values.database.host | quote }}
+  POSTGRES_PORT: {{ .Values.database.port | quote }}
+  POSTGRES_DB: {{ .Values.database.name | quote }}
+  {{- end }}
+  
+  # Application configuration
+  ASPNETCORE_ENVIRONMENT: {{ .Values.app.environment | quote }}
+  LOG_LEVEL: {{ .Values.app.logLevel | quote }}
+  ENABLE_SWAGGER: {{ .Values.app.enableSwagger | quote }}
+  
+  # CORS configuration
+  {{- if .Values.app.cors.enabled }}
+  CORS_ENABLED: "true"
+  CORS_ORIGINS: {{ join "," .Values.app.cors.origins | quote }}
+  {{- else }}
+  CORS_ENABLED: "false"
+  {{- end }}
+  
+  # Database connection pool settings
+  DB_POOLING: {{ .Values.database.pooling | quote }}
+  DB_MIN_POOL_SIZE: {{ .Values.database.minPoolSize | quote }}
+  DB_MAX_POOL_SIZE: {{ .Values.database.maxPoolSize | quote }}
+  DB_CONNECTION_LIFETIME: {{ .Values.database.connectionLifetime | quote }}
+  DB_CONNECTION_TIMEOUT: {{ .Values.database.connectionTimeout | quote }}
+  DB_SSL_MODE: {{ .Values.database.sslMode | quote }}
+  DB_TRUST_SERVER_CERTIFICATE: {{ .Values.database.trustServerCertificate | quote }}
+  
+  # Application settings JSON
+  appsettings.json: |
+    {
+      "Logging": {
+        "LogLevel": {
+          "Default": "{{ .Values.app.logLevel }}",
+          "Microsoft.AspNetCore": "Warning",
+          "Microsoft.EntityFrameworkCore": "Information"
+        }
+      },
+      "AllowedHosts": "*",
+      {{- if .Values.app.cors.enabled }}
+      "Cors": {
+        "AllowedOrigins": [
+          {{- range $i, $origin := .Values.app.cors.origins }}
+          {{- if $i }},{{ end }}
+          "{{ $origin }}"
+          {{- end }}
+        ],
+        "AllowedMethods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "AllowedHeaders": ["*"],
+        "AllowCredentials": true
+      },
+      {{- end }}
+      "HealthChecks": {
+        "UI": {
+          "HealthChecksUIEnabled": {{ .Values.monitoring.enabled }},
+          "HealthChecksUIPath": "/health-ui",
+          "ApiPath": "/health-json"
+        }
+      },
+      "Metrics": {
+        "Enabled": {{ .Values.monitoring.enabled }},
+        "Path": "/metrics"
+      }
+    }

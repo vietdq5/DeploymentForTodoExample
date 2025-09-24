@@ -3,6 +3,8 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: {{ include "todo-service.fullname" . }}
+  labels:
+    {{- include "todo-service.labels" . | nindent 4 }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -11,10 +13,72 @@ spec:
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}
   metrics:
+  {{- if .Values.autoscaling.targetCPUUtilizationPercentage }}
   - type: Resource
     resource:
       name: cpu
       target:
         type: Utilization
         averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+  {{- end }}
+  {{- if .Values.autoscaling.targetMemoryUtilizationPercentage }}
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: {{ .Values.autoscaling.targetMemoryUtilizationPercentage }}
+  {{- end }}
+  {{- if .Values.autoscaling.customMetrics }}
+  {{- range .Values.autoscaling.customMetrics }}
+  - type: {{ .type }}
+    {{- if eq .type "Pods" }}
+    pods:
+      metric:
+        name: {{ .name }}
+        {{- if .selector }}
+        selector:
+          {{- toYaml .selector | nindent 10 }}
+        {{- end }}
+      target:
+        type: {{ .target.type }}
+        averageValue: {{ .target.averageValue }}
+    {{- else if eq .type "Object" }}
+    object:
+      metric:
+        name: {{ .name }}
+        selector:
+          {{- toYaml .selector | nindent 10 }}
+      target:
+        type: {{ .target.type }}
+        value: {{ .target.value }}
+    {{- else if eq .type "External" }}
+    external:
+      metric:
+        name: {{ .name }}
+        {{- if .selector }}
+        selector:
+          {{- toYaml .selector | nindent 10 }}
+        {{- end }}
+      target:
+        type: {{ .target.type }}
+        {{- if .target.averageValue }}
+        averageValue: {{ .target.averageValue }}
+        {{- else }}
+        value: {{ .target.value }}
+        {{- end }}
+    {{- end }}
+  {{- end }}
+  {{- end }}
+  {{- if .Values.autoscaling.behavior }}
+  behavior:
+    {{- if .Values.autoscaling.behavior.scaleDown }}
+    scaleDown:
+      {{- toYaml .Values.autoscaling.behavior.scaleDown | nindent 6 }}
+    {{- end }}
+    {{- if .Values.autoscaling.behavior.scaleUp }}
+    scaleUp:
+      {{- toYaml .Values.autoscaling.behavior.scaleUp | nindent 6 }}
+    {{- end }}
+  {{- end }}
 {{- end }}

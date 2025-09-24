@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gateway-service.fullname" . }}-config
+  labels:
+    app.kubernetes.io/name: {{ include "gateway-service.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/version: {{ .Chart.AppVersion }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+data:
+  appsettings.json: |
+    {
+      "Logging": {
+        "LogLevel": {
+          "Default": "Information",
+          "Microsoft.AspNetCore": "Warning",
+          "Yarp": "Information"
+        }
+      },
+      "ReverseProxy": {
+        "Routes": {
+          {{- range $routeName, $route := .Values.yarp.routes }}
+          "{{ $routeName }}": {
+            "ClusterId": "{{ $route.clusterId }}",
+            "Match": {
+              "Path": "{{ $route.match.path }}"
+            }
+            {{- if $route.transforms }},
+            "Transforms": [
+              {{- range $i, $transform := $route.transforms }}
+              {{- if $i }},{{ end }}
+              {
+                {{- range $key, $value := $transform }}
+                "{{ $key }}": "{{ $value }}"
+                {{- end }}
+              }
+              {{- end }}
+            ]
+            {{- end }}
+          }{{ if ne $routeName (keys $.Values.yarp.routes | last) }},{{ end }}
+          {{- end }}
+        },
+        "Clusters": {
+          {{- range $clusterName, $cluster := .Values.yarp.clusters }}
+          "{{ $clusterName }}": {
+            "Destinations": {
+              {{- range $destName, $dest := $cluster.destinations }}
+              "{{ $destName }}": {
+                "Address": "{{ $dest.address }}"
+              }{{ if ne $destName (keys $cluster.destinations | last) }},{{ end }}
+              {{- end }}
+            }
+            {{- if $cluster.healthCheck }},
+            "HealthCheck": {
+              {{- if $cluster.healthCheck.active }}
+              "Active": {
+                "Enabled": {{ $cluster.healthCheck.active.enabled }},
+                "Interval": "{{ $cluster.healthCheck.active.interval }}",
+                "Timeout": "{{ $cluster.healthCheck.active.timeout }}",
+                "Policy": "{{ $cluster.healthCheck.active.policy }}",
+                "Path": "{{ $cluster.healthCheck.active.path }}"
+              }{{ if $cluster.healthCheck.passive }},{{ end }}
+              {{- end }}
+              {{- if $cluster.healthCheck.passive }}
+              "Passive": {
+                "Enabled": {{ $cluster.healthCheck.passive.enabled }},
+                "Policy": "{{ $cluster.healthCheck.passive.policy }}"
+              }
+              {{- end }}
+            }
+            {{- end }}
+          }{{ if ne $clusterName (keys $.Values.yarp.clusters | last) }},{{ end }}
+          {{- end }}
+        }
+      },
+      "AllowedHosts": "*"
+    }

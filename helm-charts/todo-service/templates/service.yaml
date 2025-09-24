@@ -2,14 +2,41 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "todo-service.fullname" . }}
+  labels:
+    {{- include "todo-service.labels" . | nindent 4 }}
+  {{- if or .Values.service.annotations .Values.monitoring.enabled }}
+  annotations:
+    {{- if .Values.monitoring.enabled }}
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "80"
+    prometheus.io/path: "/metrics"
+    {{- end }}
+    {{- with .Values.service.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
 spec:
   type: {{ .Values.service.type }}
   selector:
-    app: {{ include "todo-service.name" . }}
+    {{- include "todo-service.selectorLabels" . | nindent 4 }}
   ports:
-    - port: {{ .Values.service.port }}
-      targetPort: 80
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
       protocol: TCP
       {{- if eq .Values.service.type "NodePort" }}
+      {{- if .Values.service.nodePort }}
       nodePort: {{ .Values.service.nodePort }}
       {{- end }}
+      {{- end }}
+  {{- if eq .Values.service.type "LoadBalancer" }}
+  {{- if .Values.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.service.loadBalancerIP }}
+  {{- end }}
+  {{- if .Values.service.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+  {{- range .Values.service.loadBalancerSourceRanges }}
+  - {{ . }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
