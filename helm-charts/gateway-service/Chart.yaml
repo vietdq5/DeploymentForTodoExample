@@ -1,6 +1,6 @@
 apiVersion: v2
-name: gateway-service
-description: A Helm chart for ASP.NET Core 8 Gateway Service
+name: gateway-chart
+description: A Helm chart for Gateway API
 type: application
-version: 0.1.0
+version: 1.0.0
 appVersion: "1.0.0"

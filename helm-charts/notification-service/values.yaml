@@ -1,18 +1,18 @@
 # Replicas
 replicaCount: 1
-# todo-service:v1.0.0
+
 # Image configuration
 image:
-  repository: todo-service
+  repository: notify-service
   pullPolicy: IfNotPresent
-  tag: "v1.0.3"
+  tag: "v1.0.2"
 
 # Service configuration
 service:
   type: ClusterIP  # ClusterIP vì được expose qua Gateway
   port: 80
   targetPort: 8080
-  name: todo-service  # Tên service để Gateway routing
+  name: notification-service  # Tên service để Gateway routing
 
 # Resources
 resources:
@@ -37,15 +37,21 @@ healthCheck:
   initialDelaySeconds: 30
   periodSeconds: 10
 
-# Database configuration
-database:
-  provider: "PostgreSQL"  # hoặc "InMemory" cho development
-  connectionString: ""
+# MongoDB configuration
+mongodb:
+  connectionString: "mongodb://192.168.1.164:27017"
+  databaseName: "NotifyDB"
+
+# Redis configuration (for SignalR backplane)
+redis:
+  connectionString: "192.168.1.164:6379"
+  database: 0
+  keyPrefix: "notify:"
 
 # RabbitMQ configuration
 rabbitmq:
   enabled: true
-  hostName: "192.168.1.164"  # Service name của RabbitMQ trong cluster
+  hostName: "192.168.1.164"
   port: 5672
   userName: "guest"
   password: "guest"
@@ -53,3 +59,8 @@ rabbitmq:
   exchangeName: "notifications.exchange"
   queueName: "notifications.send.notify"
   routingKey: "notifications.send.notify"
+  notifyUserQueue: "notifications.user.queue"
+  routingKeySendNotify: "notifications.user.queue"
+  prefetchCount: 10
+  batchSize: 10
+  batchTimeout: 5000

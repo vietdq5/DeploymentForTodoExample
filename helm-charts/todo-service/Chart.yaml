@@ -1,6 +1,6 @@
 apiVersion: v2
-name: todo-service
-description: A Helm chart for ASP.NET Core 8 Todo Service
+name: todo-chart
+description: A Helm chart for Todo API Service
 type: application
-version: 0.1.0
+version: 1.0.0
 appVersion: "1.0.0"

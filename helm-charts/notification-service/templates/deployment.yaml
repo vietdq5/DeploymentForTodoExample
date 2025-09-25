@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "todo-chart.fullname" . }}
+  name: {{ include "notification-service.fullname" . }}
   labels:
-    {{- include "todo-chart.labels" . | nindent 4 }}
+    {{- include "notification-service.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      {{- include "todo-chart.selectorLabels" . | nindent 6 }}
+      {{- include "notification-service.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "todo-chart.selectorLabels" . | nindent 8 }}
+        {{- include "notification-service.selectorLabels" . | nindent 8 }}
     spec:
       containers:
         - name: {{ .Chart.Name }}
@@ -27,12 +27,14 @@ spec:
             - name: {{ .name }}
               value: {{ .value | quote }}
             {{- end }}
-            # Database connection
-            - name: ConnectionStrings__DefaultConnection
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "todo-chart.fullname" . }}-config
-                  key: database-connection-string
+            # MongoDB connection
+            - name: ConnectionStrings__MongoDB
+              value: {{ .Values.mongodb.connectionString | quote }}
+            - name: MongoDB__DatabaseName
+              value: {{ .Values.mongodb.databaseName | quote }}
+            # Redis connection
+            - name: ConnectionStrings__Redis
+              value: {{ .Values.redis.connectionString | quote }}
             # RabbitMQ configuration
             {{- if .Values.rabbitmq.enabled }}
             - name: RabbitMQ__HostName
@@ -51,6 +53,16 @@ spec:
               value: {{ .Values.rabbitmq.queueName | quote }}
             - name: RabbitMQ__RoutingKey
               value: {{ .Values.rabbitmq.routingKey | quote }}
+            - name: RabbitMQ__NotifyUserQueue
+              value: {{ .Values.rabbitmq.notifyUserQueue | quote }}
+            - name: RabbitMQ__RoutingKeySendNotify
+              value: {{ .Values.rabbitmq.routingKeySendNotify | quote }}
+            - name: RabbitMQ__PrefetchCount
+              value: {{ .Values.rabbitmq.prefetchCount | quote }}
+            - name: RabbitMQ__BatchSize
+              value: {{ .Values.rabbitmq.batchSize | quote }}
+            - name: RabbitMQ__BatchTimeout
+              value: {{ .Values.rabbitmq.batchTimeout | quote }}
             {{- end }}
           {{- if .Values.healthCheck.enabled }}
           livenessProbe:
@@ -66,7 +78,7 @@ spec:
             httpGet:
               path: {{ .Values.healthCheck.path }}
               port: http
-            initialDelaySeconds: 5
+            initialDelaySeconds: 10
             periodSeconds: 5
             timeoutSeconds: 5
             successThreshold: 1

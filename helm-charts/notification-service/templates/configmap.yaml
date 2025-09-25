@@ -1,25 +1,26 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "todo-chart.fullname" . }}-config
+  name: {{ include "notification-service.fullname" . }}-config
   labels:
-    {{- include "todo-chart.labels" . | nindent 4 }}
+    {{- include "notification-service.labels" . | nindent 4 }}
 data:
-  # Database connection string
-  database-connection-string: {{ .Values.database.connectionString | default "Host=192.168.1.164;Port=5432;Username=postgre;Password=postgre;Database=mydatabase" | quote }}
-  
   # Application configuration
   appsettings.json: |
     {
       "Logging": {
         "LogLevel": {
           "Default": "Information",
-          "Microsoft.AspNetCore": "Warning"
+          "Microsoft.Hosting.Lifetime": "Information"
         }
       },
       "AllowedHosts": "*",
       "ConnectionStrings": {
-        "DefaultConnection": "{{ .Values.database.connectionString | default "Host=192.168.1.164;Port=5432;Username=postgre;Password=postgre;Database=mydatabase" }}"
+        "MongoDB": "{{ .Values.mongodb.connectionString }}",
+        "Redis": "{{ .Values.redis.connectionString }}"
+      },
+      "MongoDB": {
+        "DatabaseName": "{{ .Values.mongodb.databaseName }}"
       },
       {{- if .Values.rabbitmq.enabled }}
       "RabbitMQ": {
@@ -30,7 +31,12 @@ data:
         "VirtualHost": "{{ .Values.rabbitmq.virtualHost }}",
         "ExchangeName": "{{ .Values.rabbitmq.exchangeName }}",
         "QueueName": "{{ .Values.rabbitmq.queueName }}",
-        "RoutingKey": "{{ .Values.rabbitmq.routingKey }}"
+        "RoutingKey": "{{ .Values.rabbitmq.routingKey }}",
+        "NotifyUserQueue": "{{ .Values.rabbitmq.notifyUserQueue }}",
+        "RoutingKeySendNotify": "{{ .Values.rabbitmq.routingKeySendNotify }}",
+        "PrefetchCount": {{ .Values.rabbitmq.prefetchCount }},
+        "BatchSize": {{ .Values.rabbitmq.batchSize }},
+        "BatchTimeout": {{ .Values.rabbitmq.batchTimeout }}
       }
       {{- else }}
       "RabbitMQ": {
@@ -41,7 +47,12 @@ data:
         "VirtualHost": "/",
         "ExchangeName": "notifications.exchange",
         "QueueName": "notifications.send.notify",
-        "RoutingKey": "notifications.send.notify"
+        "RoutingKey": "notifications.send.notify",
+        "NotifyUserQueue": "notifications.user.queue",
+        "RoutingKeySendNotify": "notifications.user.queue",
+        "PrefetchCount": 10,
+        "BatchSize": 10,
+        "BatchTimeout": 5000
       }
       {{- end }}
     }

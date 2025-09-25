@@ -1,39 +1,29 @@
+# Replicas
+replicaCount: 1
+# gateway-service:v1.0.0
 # Image configuration
 image:
-  repository: <your-acr-name>.azurecr.io/gateway-service
-  tag: v1.3
+  repository: gateway-service
   pullPolicy: IfNotPresent
-
-# Image pull secrets for ACR
-imagePullSecrets:
-  - name: acr-secret
+  tag: "v1.0.1"
 
 # Service configuration
 service:
-  type: LoadBalancer  # Changed from NodePort for AKS
+  type: LoadBalancer  # Thay đổi từ ClusterIP thành LoadBalancer cho Docker Desktop
   port: 80
-  annotations:
-    service.beta.kubernetes.io/azure-load-balancer-internal: "false"  # Public LB
-    # service.beta.kubernetes.io/azure-load-balancer-internal: "true"  # Internal LB
-    # service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "subnet-name"  # Specify subnet for internal LB
+  targetPort: 8080
 
-# Ingress configuration (optional - using Azure Application Gateway Ingress Controller)
+# Ingress configuration (tắt mặc định)
 ingress:
-  enabled: true
-  className: azure-application-gateway
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    appgw.ingress.kubernetes.io/ssl-redirect: "true"
-    appgw.ingress.kubernetes.io/backend-path-prefix: "/"
+  enabled: false
+  className: ""
+  annotations: {}
   hosts:
-    - host: api.yourdomain.com
+    - host: gateway.local
       paths:
         - path: /
           pathType: Prefix
-  tls:
-    - secretName: gateway-tls
-      hosts:
-        - api.yourdomain.com
+  tls: []
 
 # Resources
 resources:
@@ -41,40 +31,38 @@ resources:
     cpu: 500m
     memory: 512Mi
   requests:
-    cpu: 250m
-    memory: 256Mi
+    cpu: 100m
+    memory: 128Mi
 
-# Autoscaling
-autoscaling:
-  enabled: true
-  minReplicas: 2
-  maxReplicas: 10
-  targetCPUUtilizationPercentage: 70
-  targetMemoryUtilizationPercentage: 80
+# Environment variables
+env:
+  - name: ASPNETCORE_ENVIRONMENT
+    value: "Production"
+  - name: ASPNETCORE_URLS
+    value: "http://+:8080"
 
-# Health checks
-healthCheck:
-  enabled: true
-  path: /health
-  initialDelaySeconds: 30
-  periodSeconds: 10
-
-# Azure Key Vault CSI configuration
-azureKeyVault:
-  enabled: true
-  tenantId: "<your-tenant-id>"
-  keyvaultName: "kv-k8s-todo-app"
-  useManagedIdentity: true
-  userAssignedIdentityID: "<managed-identity-client-id>"  # From AKS
-
-# Pod Identity (if using Pod Identity instead of Managed Identity)
-podIdentity:
-  enabled: false
-  identityName: gateway-identity
-  identityClientId: ""
-
-# Monitoring
-monitoring:
-  enabled: true
-  serviceMonitor:
-    enabled: true
+# Config
+config:
+  jwt:
+    issuer: "Gateway"
+    audience: "ApiUsers"
+    key: "YourSuperSecretKeyThatIsAtLeast32CharactersLong!@#$%"
+  
+  services:
+    todoServiceUrl: "http://todo-service:80/"
+    notificationServiceUrl: "http://notification-service:80/"
+  
+  reverseProxy:
+    routes:
+      todoRoute:
+        enabled: true
+        path: "/api/Todos/{**catch-all}"
+        clusterId: "todo-cluster"
+      notificationRoute:
+        enabled: true
+        path: "/api/notification/{**catch-all}"
+        clusterId: "notification-cluster"
+      notificationHubRoute:
+        enabled: true
+        path: "/hub/notifyHub/{**catch-all}"
+        clusterId: "notification-cluster"
