@@ -2,8 +2,11 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "gateway-service.fullname" . }}
+  labels:
+    app: {{ include "gateway-service.name" . }}
+    version: {{ .Values.image.tag }}
 spec:
-  replicas: 1
+  replicas: {{ .Values.autoscaling.minReplicas | default 1 }}
   selector:
     matchLabels:
       app: {{ include "gateway-service.name" . }}
@@ -11,15 +14,74 @@ spec:
     metadata:
       labels:
         app: {{ include "gateway-service.name" . }}
+        version: {{ .Values.image.tag }}
+        {{- if .Values.podIdentity.enabled }}
+        aadpodidbinding: {{ .Values.podIdentity.identityName }}
+        {{- end }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
     spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml .Values.imagePullSecrets | indent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "gateway-service.fullname" . }}-sa
       containers:
         - name: gateway-service
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
-            - containerPort: 8080
+            - name: http
+              containerPort: 8080
+              protocol: TCP
           env:
             - name: ASPNETCORE_URLS
               value: "http://0.0.0.0:8080"
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
+            {{- if .Values.azureKeyVault.enabled }}
+            - name: KeyVault__Vault
+              value: {{ .Values.azureKeyVault.keyvaultName }}
+            - name: KeyVault__TenantId
+              value: {{ .Values.azureKeyVault.tenantId }}
+            - name: KeyVault__ClientId
+              value: {{ .Values.azureKeyVault.userAssignedIdentityID }}
+            {{- end }}
+          {{- if .Values.healthCheck.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.healthCheck.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.healthCheck.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthCheck.periodSeconds }}
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.healthCheck.path }}
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 3
+          {{- end }}
           resources:
 {{ toYaml .Values.resources | indent 12 }}
+          {{- if .Values.azureKeyVault.enabled }}
+          volumeMounts:
+            - name: secrets-store
+              mountPath: "/mnt/secrets-store"
+              readOnly: true
+          {{- end }}
+      {{- if .Values.azureKeyVault.enabled }}
+      volumes:
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: {{ include "gateway-service.fullname" . }}-spc
+      {{- end }}

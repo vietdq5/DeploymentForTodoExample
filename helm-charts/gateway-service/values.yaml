@@ -1,13 +1,41 @@
+# Image configuration
 image:
-  repository: gateway-service
+  repository: <your-acr-name>.azurecr.io/gateway-service
   tag: v1.3
   pullPolicy: IfNotPresent
 
-service:
-  type: NodePort
-  port: 80
-  nodePort: 30081
+# Image pull secrets for ACR
+imagePullSecrets:
+  - name: acr-secret
 
+# Service configuration
+service:
+  type: LoadBalancer  # Changed from NodePort for AKS
+  port: 80
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "false"  # Public LB
+    # service.beta.kubernetes.io/azure-load-balancer-internal: "true"  # Internal LB
+    # service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "subnet-name"  # Specify subnet for internal LB
+
+# Ingress configuration (optional - using Azure Application Gateway Ingress Controller)
+ingress:
+  enabled: true
+  className: azure-application-gateway
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    appgw.ingress.kubernetes.io/ssl-redirect: "true"
+    appgw.ingress.kubernetes.io/backend-path-prefix: "/"
+  hosts:
+    - host: api.yourdomain.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: gateway-tls
+      hosts:
+        - api.yourdomain.com
+
+# Resources
 resources:
   limits:
     cpu: 500m
@@ -15,3 +43,38 @@ resources:
   requests:
     cpu: 250m
     memory: 256Mi
+
+# Autoscaling
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Health checks
+healthCheck:
+  enabled: true
+  path: /health
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+# Azure Key Vault CSI configuration
+azureKeyVault:
+  enabled: true
+  tenantId: "<your-tenant-id>"
+  keyvaultName: "kv-k8s-todo-app"
+  useManagedIdentity: true
+  userAssignedIdentityID: "<managed-identity-client-id>"  # From AKS
+
+# Pod Identity (if using Pod Identity instead of Managed Identity)
+podIdentity:
+  enabled: false
+  identityName: gateway-identity
+  identityClientId: ""
+
+# Monitoring
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true

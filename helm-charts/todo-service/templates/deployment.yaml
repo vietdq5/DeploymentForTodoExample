@@ -2,6 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "todo-service.fullname" . }}
+  labels:
+    app: {{ include "todo-service.name" . }}
+    version: {{ .Values.image.tag }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
@@ -11,40 +14,98 @@ spec:
     metadata:
       labels:
         app: {{ include "todo-service.name" . }}
+        version: {{ .Values.image.tag }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "80"
+        prometheus.io/path: "/metrics"
     spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml .Values.imagePullSecrets | indent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "todo-service.fullname" . }}-sa
       containers:
       - name: todo-service
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         ports:
-        - containerPort: 80
+        - name: http
+          containerPort: 80
+          protocol: TCP
         env:
         - name: ASPNETCORE_URLS
           value: "http://0.0.0.0:80"
+        - name: ASPNETCORE_ENVIRONMENT
+          value: "Production"
         - name: POSTGRES_HOST
-          valueFrom:
-            configMapKeyRef:
-              name: {{ include "todo-service.fullname" . }}-config
-              key: POSTGRES_HOST
+          value: {{ .Values.postgres.host | quote }}
         - name: POSTGRES_PORT
-          valueFrom:
-            configMapKeyRef:
-              name: {{ include "todo-service.fullname" . }}-config
-              key: POSTGRES_PORT
+          value: {{ .Values.postgres.port | quote }}
         - name: POSTGRES_DB
-          valueFrom:
-            configMapKeyRef:
-              name: {{ include "todo-service.fullname" . }}-config
-              key: POSTGRES_DB
+          value: {{ .Values.postgres.database | quote }}
+        - name: POSTGRES_SSL_MODE
+          value: {{ .Values.postgres.sslMode | quote }}
+        {{- if .Values.azureKeyVault.enabled }}
+        # Secrets from Azure Key Vault via CSI Driver
         - name: POSTGRES_USER
           valueFrom:
             secretKeyRef:
-              name: {{ include "todo-service.fullname" . }}-secret
-              key: POSTGRES_USER
+              name: {{ include "todo-service.fullname" . }}-db-secret
+              key: username
         - name: POSTGRES_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: {{ include "todo-service.fullname" . }}-secret
-              key: POSTGRES_PASSWORD
+              name: {{ include "todo-service.fullname" . }}-db-secret
+              key: password
+        - name: ConnectionStrings__DefaultConnection
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "todo-service.fullname" . }}-db-secret
+              key: connectionString
+        {{- end }}
+        {{- if .Values.healthCheck.enabled }}
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.healthCheck.path }}
+            port: http
+          initialDelaySeconds: {{ .Values.healthCheck.initialDelaySeconds }}
+          periodSeconds: {{ .Values.healthCheck.periodSeconds }}
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.healthCheck.path }}
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: {{ .Values.healthCheck.path }}
+            port: http
+          initialDelaySeconds: 0
+          periodSeconds: 10
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 30
+        {{- end }}
         resources:
 {{ toYaml .Values.resources | indent 10 }}
+        {{- if .Values.azureKeyVault.enabled }}
+        volumeMounts:
+        - name: secrets-store
+          mountPath: "/mnt/secrets-store"
+          readOnly: true
+        {{- end }}
+      {{- if .Values.azureKeyVault.enabled }}
+      volumes:
+      - name: secrets-store
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: {{ include "todo-service.fullname" . }}-spc
+      {{- end }}
