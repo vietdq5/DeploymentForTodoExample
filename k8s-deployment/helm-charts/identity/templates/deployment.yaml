@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "identity.fullname" . }}
+  labels:
+    {{- include "identity.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "identity.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "identity.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            {{- range .Values.env }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+            # Database connection
+            - name: ConnectionStrings__DefaultConnection
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "identity.fullname" . }}-config
+                  key: database-connection-string
+            # RabbitMQ configuration
+            {{- if .Values.rabbitmq.enabled }}
+            - name: RabbitMQ__HostName
+              value: {{ .Values.rabbitmq.hostName | quote }}
+            - name: RabbitMQ__Port
+              value: {{ .Values.rabbitmq.port | quote }}
+            - name: RabbitMQ__UserName
+              value: {{ .Values.rabbitmq.userName | quote }}
+            - name: RabbitMQ__Password
+              value: {{ .Values.rabbitmq.password | quote }}
+            - name: RabbitMQ__VirtualHost
+              value: {{ .Values.rabbitmq.virtualHost | quote }}
+            - name: RabbitMQ__ExchangeName
+              value: {{ .Values.rabbitmq.exchangeName | quote }}
+            - name: RabbitMQ__QueueName
+              value: {{ .Values.rabbitmq.queueName | quote }}
+            - name: RabbitMQ__RoutingKey
+              value: {{ .Values.rabbitmq.routingKey | quote }}
+            {{- end }}
+          {{- if .Values.healthCheck.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.healthCheck.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.healthCheck.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthCheck.periodSeconds }}
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.healthCheck.path }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30

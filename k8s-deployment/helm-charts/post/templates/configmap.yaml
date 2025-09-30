@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "post.fullname" . }}-config
+  labels:
+    {{- include "post.labels" . | nindent 4 }}
+data:
+  # Database connection string
+  database-connection-string: {{ .Values.database.connectionString | default "Host=192.168.1.164;Port=5432;Username=postgre;Password=postgre;Database=mydatabase" | quote }}
+  
+  # Application configuration
+  appsettings.json: |
+    {
+      "Logging": {
+        "LogLevel": {
+          "Default": "Information",
+          "Microsoft.AspNetCore": "Warning"
+        }
+      },
+      "AllowedHosts": "*",
+      "ConnectionStrings": {
+        "DefaultConnection": "{{ .Values.database.connectionString | default "Host=192.168.1.164;Port=5432;Username=postgre;Password=postgre;Database=mydatabase" }}"
+      },
+      {{- if .Values.rabbitmq.enabled }}
+      "RabbitMQ": {
+        "HostName": "{{ .Values.rabbitmq.hostName }}",
+        "Port": {{ .Values.rabbitmq.port }},
+        "UserName": "{{ .Values.rabbitmq.userName }}",
+        "Password": "{{ .Values.rabbitmq.password }}",
+        "VirtualHost": "{{ .Values.rabbitmq.virtualHost }}",
+        "ExchangeName": "{{ .Values.rabbitmq.exchangeName }}",
+        "QueueName": "{{ .Values.rabbitmq.queueName }}",
+        "RoutingKey": "{{ .Values.rabbitmq.routingKey }}"
+      }
+      {{- else }}
+      "RabbitMQ": {
+        "HostName": "192.168.1.164",
+        "Port": 5672,
+        "UserName": "guest",
+        "Password": "guest",
+        "VirtualHost": "/",
+        "ExchangeName": "notifications.exchange",
+        "QueueName": "notifications.send.notification",
+        "RoutingKey": "notifications.send.notification"
+      }
+      {{- end }}
+    }

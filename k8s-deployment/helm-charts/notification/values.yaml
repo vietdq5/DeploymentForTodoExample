@@ -1,0 +1,66 @@
+# Replicas
+replicaCount: 1
+
+# Image configuration
+image:
+  repository: notification-service
+  pullPolicy: IfNotPresent
+  tag: "v1.0.2"
+
+# Service configuration
+service:
+  type: ClusterIP  # ClusterIP vì được expose qua Gateway
+  port: 80
+  targetPort: 8080
+  name: notification-service  # Tên service để Gateway routing
+
+# Resources
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Environment variables
+env:
+  - name: ASPNETCORE_ENVIRONMENT
+    value: "Production"
+  - name: ASPNETCORE_URLS
+    value: "http://+:8080"
+
+# Health checks
+healthCheck:
+  enabled: true
+  path: /health
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+# MongoDB configuration
+mongodb:
+  connectionString: "mongodb://52.237.81.152:27017"
+  databaseName: "NotifyDB"
+
+# Redis configuration (for SignalR backplane)
+redis:
+  connectionString: "52.237.81.152:6379"
+  database: 0
+  keyPrefix: "notification:"
+
+# RabbitMQ configuration
+rabbitmq:
+  enabled: true
+  hostName: "52.237.81.152"
+  port: 5672
+  userName: "guest"
+  password: "guest"
+  virtualHost: "/"
+  exchangeName: "notifications.exchange"
+  queueName: "notifications.send.notification"
+  routingKey: "notifications.send.notification"
+  notifyUserQueue: "notifications.user.queue"
+  routingKeySendNotify: "notifications.user.queue"
+  prefetchCount: 10
+  batchSize: 10
+  batchTimeout: 5000

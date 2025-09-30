@@ -1,0 +1,6 @@
+apiVersion: v2
+name: post
+description: A Helm chart for Todo API Service
+type: application
+version: 1.0.0
+appVersion: "1.0.0"

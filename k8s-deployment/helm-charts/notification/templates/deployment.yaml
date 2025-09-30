@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "notification.fullname" . }}
+  labels:
+    {{- include "notification.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "notification.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "notification.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            {{- range .Values.env }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+            # MongoDB connection
+            - name: ConnectionStrings__MongoDB
+              value: {{ .Values.mongodb.connectionString | quote }}
+            - name: MongoDB__DatabaseName
+              value: {{ .Values.mongodb.databaseName | quote }}
+            # Redis connection
+            - name: ConnectionStrings__Redis
+              value: {{ .Values.redis.connectionString | quote }}
+            # RabbitMQ configuration
+            {{- if .Values.rabbitmq.enabled }}
+            - name: RabbitMQ__HostName
+              value: {{ .Values.rabbitmq.hostName | quote }}
+            - name: RabbitMQ__Port
+              value: {{ .Values.rabbitmq.port | quote }}
+            - name: RabbitMQ__UserName
+              value: {{ .Values.rabbitmq.userName | quote }}
+            - name: RabbitMQ__Password
+              value: {{ .Values.rabbitmq.password | quote }}
+            - name: RabbitMQ__VirtualHost
+              value: {{ .Values.rabbitmq.virtualHost | quote }}
+            - name: RabbitMQ__ExchangeName
+              value: {{ .Values.rabbitmq.exchangeName | quote }}
+            - name: RabbitMQ__QueueName
+              value: {{ .Values.rabbitmq.queueName | quote }}
+            - name: RabbitMQ__RoutingKey
+              value: {{ .Values.rabbitmq.routingKey | quote }}
+            - name: RabbitMQ__NotifyUserQueue
+              value: {{ .Values.rabbitmq.notifyUserQueue | quote }}
+            - name: RabbitMQ__RoutingKeySendNotify
+              value: {{ .Values.rabbitmq.routingKeySendNotify | quote }}
+            - name: RabbitMQ__PrefetchCount
+              value: {{ .Values.rabbitmq.prefetchCount | quote }}
+            - name: RabbitMQ__BatchSize
+              value: {{ .Values.rabbitmq.batchSize | quote }}
+            - name: RabbitMQ__BatchTimeout
+              value: {{ .Values.rabbitmq.batchTimeout | quote }}
+            {{- end }}
+          {{- if .Values.healthCheck.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.healthCheck.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.healthCheck.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthCheck.periodSeconds }}
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.healthCheck.path }}
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30

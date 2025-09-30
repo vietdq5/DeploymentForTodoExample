@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "notification.fullname" . }}-config
+  labels:
+    {{- include "notification.labels" . | nindent 4 }}
+data:
+  # Application configuration
+  appsettings.json: |
+    {
+      "Logging": {
+        "LogLevel": {
+          "Default": "Information",
+          "Microsoft.Hosting.Lifetime": "Information"
+        }
+      },
+      "AllowedHosts": "*",
+      "ConnectionStrings": {
+        "MongoDB": "{{ .Values.mongodb.connectionString }}",
+        "Redis": "{{ .Values.redis.connectionString }}"
+      },
+      "MongoDB": {
+        "DatabaseName": "{{ .Values.mongodb.databaseName }}"
+      },
+      {{- if .Values.rabbitmq.enabled }}
+      "RabbitMQ": {
+        "HostName": "{{ .Values.rabbitmq.hostName }}",
+        "Port": {{ .Values.rabbitmq.port }},
+        "UserName": "{{ .Values.rabbitmq.userName }}",
+        "Password": "{{ .Values.rabbitmq.password }}",
+        "VirtualHost": "{{ .Values.rabbitmq.virtualHost }}",
+        "ExchangeName": "{{ .Values.rabbitmq.exchangeName }}",
+        "QueueName": "{{ .Values.rabbitmq.queueName }}",
+        "RoutingKey": "{{ .Values.rabbitmq.routingKey }}",
+        "NotifyUserQueue": "{{ .Values.rabbitmq.notifyUserQueue }}",
+        "RoutingKeySendNotify": "{{ .Values.rabbitmq.routingKeySendNotify }}",
+        "PrefetchCount": {{ .Values.rabbitmq.prefetchCount }},
+        "BatchSize": {{ .Values.rabbitmq.batchSize }},
+        "BatchTimeout": {{ .Values.rabbitmq.batchTimeout }}
+      }
+      {{- else }}
+      "RabbitMQ": {
+        "HostName": "192.168.1.164",
+        "Port": 5672,
+        "UserName": "guest",
+        "Password": "guest",
+        "VirtualHost": "/",
+        "ExchangeName": "notifications.exchange",
+        "QueueName": "notifications.send.notify",
+        "RoutingKey": "notifications.send.notify",
+        "NotifyUserQueue": "notifications.user.queue",
+        "RoutingKeySendNotify": "notifications.user.queue",
+        "PrefetchCount": 10,
+        "BatchSize": 10,
+        "BatchTimeout": 5000
+      }
+      {{- end }}
+    }
