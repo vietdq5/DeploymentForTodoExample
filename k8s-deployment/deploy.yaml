@@ -1,1 +1,212 @@
 
+name: Build and Deploy to AKS
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+  IMAGE_NAME: gateway-service
+  AKS_CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME }}
+  AKS_RESOURCE_GROUP: ${{ secrets.AKS_RESOURCE_GROUP }}
+  NAMESPACE: duckfeed-prod
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.version.outputs.version }}
+      version-type: ${{ steps.version.outputs.type }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ═══════════════════════════════════════════
+      # AUTO VERSION GENERATION
+      # ═══════════════════════════════════════════
+      - name: Generate Version
+        id: version
+        run: |
+          echo "🔍 Detecting version type..."
+          
+          # Nếu có TAG → dùng semantic version
+          if [[ $GITHUB_REF == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+            VERSION_TYPE="release"
+            echo "🏷️  Release Version: v$VERSION"
+          
+          # Nếu KHÔNG có TAG → dùng datetime
+          else
+            BRANCH=${GITHUB_REF#refs/heads/}
+            BRANCH=${BRANCH//\//-}  # Replace / with -
+            DATETIME=$(TZ='Asia/Ho_Chi_Minh' date '+%Y%m%d%H%M%S')
+            SHORT_SHA=${GITHUB_SHA::7}
+            VERSION="${BRANCH}-${DATETIME}-${SHORT_SHA}"
+            VERSION_TYPE="snapshot"
+            echo "📅 Snapshot Version: $VERSION"
+          fi
+          
+          # Output
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "type=$VERSION_TYPE" >> $GITHUB_OUTPUT
+          
+          # Summary
+          echo "### 🚀 Version Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: \`$VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Type**: \`$VERSION_TYPE\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch/Tag**: \`$GITHUB_REF\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Azure Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ACR_LOGIN_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      # ═══════════════════════════════════════════
+      # BUILD & PUSH IMAGE
+      # ═══════════════════════════════════════════
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            version.type=${{ steps.version.outputs.type }}
+          cache-from: type=registry,ref=${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+
+      - name: Image Info
+        run: |
+          echo "### 📦 Docker Image" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  deploy-to-aks:
+    name: Deploy to AKS
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    # Chỉ deploy khi push (không deploy PR)
+    if: github.event_name != 'pull_request'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set AKS context
+        uses: azure/aks-set-context@v3
+        with:
+          cluster-name: ${{ env.AKS_CLUSTER_NAME }}
+          resource-group: ${{ env.AKS_RESOURCE_GROUP }}
+
+      - name: Create namespace if not exists
+        run: |
+          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'latest'
+
+      # ═══════════════════════════════════════════
+      # DEPLOY WITH VERSION
+      # ═══════════════════════════════════════════
+      - name: Deploy with Helm
+        run: |
+          VERSION="${{ needs.build-and-push.outputs.image-tag }}"
+          FULL_IMAGE="${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:$VERSION"
+          
+          echo "🚀 Deploying version: $VERSION"
+          echo "📦 Full Image: $FULL_IMAGE"
+          
+          # Verify image exists in ACR first
+          echo "🔍 Verifying image in ACR..."
+          az acr repository show-tags \
+            --name $(echo ${{ env.ACR_LOGIN_SERVER }} | cut -d. -f1) \
+            --repository ${{ env.IMAGE_NAME }} \
+            --output table | grep "$VERSION" || {
+              echo "❌ Image tag $VERSION not found in ACR!"
+              exit 1
+            }
+          
+          echo "✅ Image found in ACR"
+          
+          # Deploy with explicit image path
+          helm upgrade --install gateway-release ./helm-charts \
+            --namespace ${{ env.NAMESPACE }} \
+            --create-namespace \
+            --set image.repository=${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }} \
+            --set image.tag="$VERSION" \
+            --set image.pullPolicy=Always \
+            --wait \
+            --timeout 10m \
+            --debug || {
+              echo "❌ Deployment failed!"
+              echo ""
+              echo "📋 Pod Status:"
+              kubectl get pods -n ${{ env.NAMESPACE }}
+              echo ""
+              echo "📋 Describe Pods:"
+              kubectl describe pods -n ${{ env.NAMESPACE }}
+              echo ""
+              echo "📋 Events:"
+              kubectl get events -n ${{ env.NAMESPACE }} --sort-by='.lastTimestamp' | tail -20
+              exit 1
+            }
+          
+          echo "✅ Deployment successful!"
+          
+          # Verify deployed image
+          DEPLOYED_IMAGE=$(kubectl get deployment gateway-release-gateway -n ${{ env.NAMESPACE }} \
+            -o jsonpath='{.spec.template.spec.containers[0].image}')
+          echo "📦 Deployed Image: $DEPLOYED_IMAGE"
+          
+          if [[ "$DEPLOYED_IMAGE" == "$FULL_IMAGE" ]]; then
+            echo "✅ Image version matches!"
+          else
+            echo "⚠️  Image mismatch!"
+            echo "Expected: $FULL_IMAGE"
+            echo "Got: $DEPLOYED_IMAGE"
+          fi
+
+      - name: Verify Deployment
+        run: |
+          echo "✅ Verifying deployment..."
+          kubectl rollout status deployment/gateway-release-gateway -n ${{ env.NAMESPACE }} --timeout=300s
+
+      - name: Get deployment status
+        run: |
+          echo "### 📊 Deployment Status" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          kubectl get all -n ${{ env.NAMESPACE }} >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
